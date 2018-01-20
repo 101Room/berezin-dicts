@@ -32,3 +32,17 @@ function save() {
     cat "$file_name"
 }
 
+
+# Create descriptions file for every file in directory "$1".
+function generate_descriptions_stub() {
+    [[ -d "${1:?choose directory}" ]] && dir_path="$1"
+    desc_file="descriptions.cfg"
+
+    for file in "$dir_path"/*; do
+        echo "
+["$(basename $file)"]
+name =
+description =
+" >> "$dir_path/$desc_file"
+    done
+}
