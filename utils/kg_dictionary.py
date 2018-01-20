@@ -11,6 +11,7 @@ from os import listdir
 log = logging.getLogger()
 
 METADATA_FN = 'descriptions.cfg'
+SETTINGS_FN = 'settings.cfg'
 
 
 def parse_args():
@@ -46,12 +47,23 @@ def main():
     args = parse_args()
     init_logging()
 
+    settings = get_settings(Path(__file__).parent / SETTINGS_FN)
+
     if args.file_path:
+        log.debug('From file %s', args.file_path)
         create_dictionary(read_words(args.file_path), get_metadata(args.file_path))
     else:
         for file_name in listdir(args.dir_path):
             file_path = args.dir_path / file_name
+            log.debug('From file %s', file_path)
             create_dictionary(read_words(file_path), get_metadata(file_path))
+
+
+def get_settings(config_path):
+    """Return settings for script (nested dict)."""
+    cfg = ConfigParser()
+    cfg.read(config_path)
+    return cfg
 
 
 def read_words(file_path):
@@ -61,12 +73,21 @@ def read_words(file_path):
 
 
 def get_metadata(file_path):
-    cfg = ConfigParser()
-    cfg.read(file_path.parent / METADATA_FN)
-    return cfg[file_path.name]
+    """Read metadata from descriptions.cfg for specified file."""
+    desc = ConfigParser()
+    desc.read(file_path.parent / METADATA_FN)
+    return desc[file_path.name]
 
 
 def create_dictionary(words, metadata):
+    """Create dictionary.
+
+    :param words: words list.
+    :param metadata: dict with settings for kg. dictionary:
+
+        * name,
+        * description.
+    """
     log.debug('Words list: %s', words)
     log.debug('Metadata: %s', pformat(dict(metadata.items())))
 
