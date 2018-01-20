@@ -3,15 +3,21 @@
 
 import argparse
 import logging
+import re
 from configparser import ConfigParser
+from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from pprint import pformat
-from os import listdir
+from urllib.parse import urljoin
+
+import requests
 
 log = logging.getLogger()
 
 METADATA_FN = 'descriptions.cfg'
-SETTINGS_FN = 'settings.cfg'
+
+BASE_URL = 'http://klavogonki.ru/'
+VOC_ADD_URL = urljoin(BASE_URL, '/vocs/add')
 
 
 def parse_args():
@@ -26,10 +32,9 @@ def parse_args():
 
     parser = argparse.ArgumentParser()
 
-    g_source = parser.add_argument_group('Select source') \
-        .add_mutually_exclusive_group(required=True)
-    g_source.add_argument('-f', dest='file_path', type=_get_path)
-    g_source.add_argument('-d', dest='dir_path', type=_get_path)
+    parser.add_argument('-f', dest='files', type=_get_path, nargs='+')
+    parser.add_argument('-c', dest='cookie_file', type=_get_path, required=True,
+                        help='Path to cookies.txt')
 
     return parser.parse_args()
 
@@ -47,23 +52,16 @@ def main():
     args = parse_args()
     init_logging()
 
-    settings = get_settings(Path(__file__).parent / SETTINGS_FN)
+    with requests.session() as session:
+        session.cookies = load_cookie(args.cookie_file)
 
-    if args.file_path:
-        log.debug('From file %s', args.file_path)
-        create_dictionary(read_words(args.file_path), get_metadata(args.file_path))
-    else:
-        for file_name in listdir(args.dir_path):
-            file_path = args.dir_path / file_name
-            log.debug('From file %s', file_path)
-            create_dictionary(read_words(file_path), get_metadata(file_path))
-
-
-def get_settings(config_path):
-    """Return settings for script (nested dict)."""
-    cfg = ConfigParser()
-    cfg.read(config_path)
-    return cfg
+        for file_path in args.files:
+            # TODO: saving doesn't work now
+            page_add = session.get(VOC_ADD_URL)
+            payload = create_dictionary_data(file_path)
+            payload.update(csrftoken=find_csrf_token(page_add.text))
+            rs = session.post(VOC_ADD_URL, files=payload)
+            log.info('Created %s', rs.url)
 
 
 def read_words(file_path):
@@ -79,17 +77,47 @@ def get_metadata(file_path):
     return desc[file_path.name]
 
 
-def create_dictionary(words, metadata):
-    """Create dictionary.
+def create_dictionary_data(file_path):
+    """Create dictionary data from file."""
 
-    :param words: words list.
-    :param metadata: dict with settings for kg. dictionary:
+    def form_data(words, metadata):
+        """Return data suitable for HTTP POST.
 
-        * name,
-        * description.
-    """
-    log.debug('Words list: %s', words)
-    log.debug('Metadata: %s', pformat(dict(metadata.items())))
+        :param words: words list.
+        :param metadata: dict with settings for kg. dictionary:
+
+            * name,
+            * description.
+        """
+        log.debug('Words list: %s', words)
+        log.debug('Metadata: %s', pformat(dict(metadata.items())))
+
+        return {
+            'name': metadata['name'],
+            'description': metadata['description'],
+            'public': 'private',
+            'type': 'words',
+            'words': '\n'.join(words),
+        }
+
+    log.debug('File %s', file_path)
+    return form_data(read_words(file_path), get_metadata(file_path))
+
+
+def load_cookie(file_path):
+    """Load cookie.txt."""
+    cookie = MozillaCookieJar(str(file_path))
+    cookie.load()
+    return cookie
+
+
+def find_csrf_token(page_text):
+    """Extract CSRF token from vocadd form."""
+    match = re.search("name='csrftoken' value='([^']+)'", page_text)
+    if match:
+        return match.group(1)
+    else:
+        raise ValueError('CSRF token not found')
 
 
 if __name__ == '__main__':
