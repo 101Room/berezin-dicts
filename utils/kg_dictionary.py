@@ -43,7 +43,7 @@ def init_logging():
     """Initialize logging."""
     logging.basicConfig(
         format='[%(levelname).1s] %(module)s: %(message)s',
-        level=logging.DEBUG,
+        level=logging.INFO,
     )
 
 
@@ -56,22 +56,20 @@ def main():
         session.cookies = load_cookie(args.cookie_file)
 
         for file_path in args.files:
-            page_add = session.get(VOC_ADD_URL)
-            payload = create_dictionary_data(file_path)
-            payload.update(csrftoken=find_csrf_token(page_add.text))
+            form_data = create_dictionary_data(file_path)
 
-            rq = requests.Request('POST', VOC_ADD_URL, files=payload)
+            rq = requests.Request('POST', VOC_ADD_URL, files=form_data)
             prep_rq = session.prepare_request(rq)
             # It seems that kg doesn't like this field, but requests forces it.
             prep_rq.body = re.sub('filename="([a-z]+)"', '', prep_rq.body.decode()).encode()
             prep_rq.prepare_content_length(prep_rq.body)
-            rs = session.send(prep_rq)
+            resp = session.send(prep_rq)
 
-            if rs.text.find(payload['name']) == -1 \
-                    or rs.text.find('class=error') >= 0:
-                log.error('Dictionary creation from %s failed!', file_path)
+            find_err = re.search('class=error>(.+)</div>', resp.text)
+            if find_err:
+                log.error('Dictionary creation from %s failed: %s', file_path, find_err.group(1))
             else:
-                log.info('Created %s', rs.url)
+                log.info('Created %s "%s"', resp.url, form_data['name'])
 
 
 def read_words(file_path):
@@ -88,7 +86,7 @@ def get_metadata(file_path):
         desc.read(description_fn)
         return desc[file_path.name]
     except KeyError:
-        raise ValueError('Cannot load "descriptions.cfg"')
+        raise ValueError('Cannot load metadata from "descriptions.cfg"')
 
 
 def create_dictionary_data(file_path):
@@ -109,9 +107,9 @@ def create_dictionary_data(file_path):
         return {
             'name': metadata['name'],
             'description': metadata['description'],
-            'public': 'private',
-            'type': 'words',
-            'words': '\r\n'.join(words),
+            'public': 'public',
+            'type': 'texts',
+            'words': ' '.join(words),
             'info': '',
             'url': '',
             'submit': 'Добавить',
