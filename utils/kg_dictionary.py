@@ -32,7 +32,7 @@ def parse_args():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-f', dest='files', type=_get_path, nargs='+')
+    parser.add_argument('-f', dest='files', type=_get_path, nargs='+', required=True)
     parser.add_argument('-c', dest='cookie_file', type=_get_path, required=True,
                         help='Path to cookies.txt')
 
@@ -42,7 +42,7 @@ def parse_args():
 def init_logging():
     """Initialize logging."""
     logging.basicConfig(
-        format='[%(levelname).1s] %(message)s',
+        format='[%(levelname).1s] %(module)s: %(message)s',
         level=logging.DEBUG,
     )
 
@@ -56,12 +56,22 @@ def main():
         session.cookies = load_cookie(args.cookie_file)
 
         for file_path in args.files:
-            # TODO: saving doesn't work now
             page_add = session.get(VOC_ADD_URL)
             payload = create_dictionary_data(file_path)
             payload.update(csrftoken=find_csrf_token(page_add.text))
-            rs = session.post(VOC_ADD_URL, files=payload)
-            log.info('Created %s', rs.url)
+
+            rq = requests.Request('POST', VOC_ADD_URL, files=payload)
+            prep_rq = session.prepare_request(rq)
+            # It seems that kg doesn't like this field, but requests forces it.
+            prep_rq.body = re.sub('filename="([a-z]+)"', '', prep_rq.body.decode()).encode()
+            prep_rq.prepare_content_length(prep_rq.body)
+            rs = session.send(prep_rq)
+
+            if rs.text.find(payload['name']) == -1 \
+                    or rs.text.find('class=error') >= 0:
+                log.error('Dictionary creation from %s failed!', file_path)
+            else:
+                log.info('Created %s', rs.url)
 
 
 def read_words(file_path):
@@ -73,8 +83,12 @@ def read_words(file_path):
 def get_metadata(file_path):
     """Read metadata from descriptions.cfg for specified file."""
     desc = ConfigParser()
-    desc.read(file_path.parent / METADATA_FN)
-    return desc[file_path.name]
+    description_fn = file_path.parent / METADATA_FN
+    try:
+        desc.read(description_fn)
+        return desc[file_path.name]
+    except KeyError:
+        raise ValueError('Cannot load "descriptions.cfg"')
 
 
 def create_dictionary_data(file_path):
@@ -97,10 +111,13 @@ def create_dictionary_data(file_path):
             'description': metadata['description'],
             'public': 'private',
             'type': 'words',
-            'words': '\n'.join(words),
+            'words': '\r\n'.join(words),
+            'info': '',
+            'url': '',
+            'submit': 'Добавить',
         }
 
-    log.debug('File %s', file_path)
+    log.debug('File: %s', file_path)
     return form_data(read_words(file_path), get_metadata(file_path))
 
 
