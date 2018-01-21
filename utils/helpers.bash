@@ -41,7 +41,7 @@ function generate_descriptions_stub() {
     for file in "$dir_path"/*; do
         echo "
 ["$(basename $file)"]
-name =
+name = [Березин] Упражнение N, § M
 description =
 " >> "$dir_path/$desc_file"
     done
