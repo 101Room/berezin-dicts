@@ -75,7 +75,7 @@ def main():
 def read_words(file_path):
     """Return list of words from file."""
     with open(file_path) as fp:
-        return fp.read().split()
+        return fp.read().strip()
 
 
 def get_metadata(file_path):
@@ -101,7 +101,7 @@ def create_dictionary_data(file_path):
             * name,
             * description.
         """
-        log.debug('Words list: %s', words)
+        log.debug('Words list:\n%s', words)
         log.debug('Metadata: %s', pformat(dict(metadata.items())))
 
         return {
@@ -109,7 +109,7 @@ def create_dictionary_data(file_path):
             'description': metadata['description'],
             'public': 'public',
             'type': 'texts',
-            'words': ' '.join(words),
+            'words': words + '.',
             'info': '',
             'url': '',
             'submit': 'Добавить',
