@@ -56,6 +56,9 @@ def main():
         session.cookies = load_cookie(args.cookie_file)
 
         for file_path in args.files:
+            page_add = session.get(VOC_ADD_URL)
+            find_csrf_token(page_add.text)
+
             form_data = create_dictionary_data(file_path)
 
             rq = requests.Request('POST', VOC_ADD_URL, files=form_data)
