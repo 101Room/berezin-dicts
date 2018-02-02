@@ -14,7 +14,8 @@ import requests
 
 log = logging.getLogger()
 
-METADATA_FN = 'descriptions.cfg'
+# This file should be in the same directory with source file.
+DESCRIPTIONS_FN = 'descriptions.cfg'
 
 BASE_URL = 'http://klavogonki.ru/'
 VOC_ADD_URL = urljoin(BASE_URL, '/vocs/add')
@@ -56,70 +57,8 @@ def main():
         session.cookies = load_cookie(args.cookie_file)
 
         for file_path in args.files:
-            page_add = session.get(VOC_ADD_URL)
-            find_csrf_token(page_add.text)
-
-            form_data = create_dictionary_data(file_path)
-
-            rq = requests.Request('POST', VOC_ADD_URL, files=form_data)
-            prep_rq = session.prepare_request(rq)
-            # It seems that kg doesn't like this field, but requests forces it.
-            prep_rq.body = re.sub('filename="([a-z]+)"', '', prep_rq.body.decode()).encode()
-            prep_rq.prepare_content_length(prep_rq.body)
-            resp = session.send(prep_rq)
-
-            find_err = re.search('class=error>(.+)</div>', resp.text)
-            if find_err:
-                log.error('Dictionary creation from %s failed: %s', file_path, find_err.group(1))
-            else:
-                log.info('Created %s "%s"', resp.url, form_data['name'])
-
-
-def read_words(file_path):
-    """Return list of words from file."""
-    with open(file_path) as fp:
-        return fp.read().strip()
-
-
-def get_metadata(file_path):
-    """Read metadata from descriptions.cfg for specified file."""
-    desc = ConfigParser()
-    description_fn = file_path.parent / METADATA_FN
-    try:
-        desc.read(description_fn)
-        return desc[file_path.name]
-    except KeyError:
-        raise ValueError('Cannot load metadata from "descriptions.cfg"')
-
-
-def create_dictionary_data(file_path):
-    """Create dictionary data from file."""
-
-    def form_data(words, metadata):
-        """Return data suitable for HTTP POST.
-
-        :param words: words list.
-        :param metadata: dict with settings for kg. dictionary:
-
-            * name,
-            * description.
-        """
-        log.debug('Words list:\n%s', words)
-        log.debug('Metadata: %s', pformat(dict(metadata.items())))
-
-        return {
-            'name': metadata['name'],
-            'description': metadata['description'],
-            'public': 'public',
-            'type': 'texts',
-            'words': words + '.',
-            'info': '',
-            'url': '',
-            'submit': 'Добавить',
-        }
-
-    log.debug('File: %s', file_path)
-    return form_data(read_words(file_path), get_metadata(file_path))
+            can_i_haz_login(session)
+            upload_dictionary(session, file_path)
 
 
 def load_cookie(file_path):
@@ -129,13 +68,86 @@ def load_cookie(file_path):
     return cookie
 
 
-def find_csrf_token(page_text):
+def can_i_haz_login(session):
+    """Check if we are still logged in."""
+    page_add = session.get(VOC_ADD_URL)
+    if not check_csrf_token(page_add.text):
+        exit('Login incorrect - update your cookies')
+
+
+def check_csrf_token(page_text):
     """Extract CSRF token from vocadd form."""
     match = re.search("name='csrftoken' value='([^']+)'", page_text)
-    if match:
-        return match.group(1)
+    return bool(match)
+
+
+def upload_dictionary(session, file_path):
+    """Create dictionary on KG in given Session from specified file."""
+    form_data = create_post_data(file_path)
+
+    rq = requests.Request('POST', VOC_ADD_URL, files=form_data)
+    resp = session.send(strip_filename_headers(session.prepare_request(rq)))
+
+    find_err = re.search('class=error>(.+)</div>', resp.text)
+    if find_err:
+        log.error('Dictionary creation from %s failed: %s', file_path, find_err.group(1))
     else:
-        raise ValueError('CSRF token not found')
+        log.info('Created %s "%s"', resp.url, form_data['name'])
+
+
+def create_post_data(file_path):
+    """Create dictionary data for HTTP post from file."""
+
+    def form_fields(content, metadata):
+        """Return required for HTTP POST fields.
+
+        :param content: words list.
+        :param metadata: dict with settings for kg. dictionary:
+
+            * name,
+            * description.
+        """
+        log.debug('Text:\n%s', content)
+        log.debug('Metadata: %s', pformat(dict(metadata.items())))
+
+        return {
+            'name': metadata['name'],
+            'description': metadata['description'],
+            'public': 'public',
+            'type': 'texts',
+            # Dot is required or else KG will replace last letter of text to it.
+            'words': content + '.',
+            'info': '',
+            'url': '',
+            'submit': 'Добавить',
+        }
+
+    log.debug('File: %s', file_path)
+    return form_fields(read_text(file_path), get_metadata(file_path))
+
+
+def read_text(file_path):
+    """Get contents of file."""
+    with open(file_path) as fp:
+        return fp.read().strip()
+
+
+def get_metadata(file_path):
+    """Read metadata from descriptions.cfg for specified file."""
+    desc = ConfigParser()
+    try:
+        desc.read(file_path.parent / DESCRIPTIONS_FN)
+        return desc[file_path.name]
+    except KeyError:
+        exit('Cannot load metadata from "descriptions.cfg"')
+
+
+def strip_filename_headers(prep_rq):
+    """Fix some shit in PreparedRequest."""
+    # It seems that kg doesn't like this field, but requests forces it.
+    prep_rq.body = re.sub('filename="([a-z]+)"', '', prep_rq.body.decode()).encode()
+    prep_rq.prepare_content_length(prep_rq.body)
+    return prep_rq
 
 
 if __name__ == '__main__':
