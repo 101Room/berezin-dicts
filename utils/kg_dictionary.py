@@ -100,9 +100,9 @@ def upload_dictionary(session, file_path):
 def create_post_data(file_path):
     """Create dictionary data for HTTP post from file."""
 
-    def prepare_text(text):
+    def prepare_as_text(text):
         """Append dot or else KG will replace last letter of text to it."""
-        return text + '.'
+        return text if text.endswith('.') else text + '.'
 
     def form_fields(content, metadata):
         """Return required for HTTP POST fields.
@@ -114,6 +114,8 @@ def create_post_data(file_path):
             * description.
 
         """
+        content = prepare_as_text(content)
+
         log.debug('Text:\n%s', content)
         log.debug('Metadata:\n%s', pformat(dict(metadata.items())))
 
@@ -122,7 +124,7 @@ def create_post_data(file_path):
             'description': metadata['description'],
             'public': 'public',
             'type': 'texts',
-            'words': prepare_text(content),
+            'words': content,
             'info': '',
             'url': '',
             'submit': 'Добавить',
