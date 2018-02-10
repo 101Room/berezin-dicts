@@ -17,6 +17,8 @@ log = logging.getLogger()
 # This file should be in the same directory with source file.
 DESCRIPTIONS_FN = 'descriptions.cfg'
 
+URL_LIST_FN = Path(__file__).parent / 'created_dicts.txt'
+
 BASE_URL = 'http://klavogonki.ru/'
 VOC_ADD_URL = urljoin(BASE_URL, '/vocs/add')
 
@@ -55,10 +57,15 @@ def main():
 
     with requests.session() as session:
         session.cookies = load_cookies(args.cookie_file)
+        created_dicts = []
 
         for file_path in args.files:
             can_i_haz_login(session)
-            upload_dictionary(session, file_path)
+            new_dict = upload_dictionary(session, file_path)
+            if new_dict:
+                created_dicts.append(new_dict)
+
+    save_url_list(created_dicts)
 
 
 def load_cookies(file_path):
@@ -93,8 +100,10 @@ def upload_dictionary(session, file_path):
     if find_err:
         log.error('Dictionary creation from %s failed: %s',
                   file_path, find_err.group(1))
-    else:
-        log.info('Created %s "%s"', resp.url, form_data['name'])
+        return None
+
+    log.info('Created %s "%s"', resp.url, form_data['name'])
+    return {'title': form_data['name'], 'url': resp.url}
 
 
 def create_post_data(file_path):
@@ -158,6 +167,14 @@ def strip_filename_headers(prep_rq):
     prep_rq.body = replaced.encode()
     prep_rq.prepare_content_length(prep_rq.body)
     return prep_rq
+
+
+def save_url_list(created_dicts):
+    """Save to file information about new dictionaries returned from upload_dictionary."""
+    with open(URL_LIST_FN, 'a') as fp:
+        for dict_data in created_dicts:
+            line = f'[url="{dict_data["url"]}"]{dict_data["title"]}[/url]\n'
+            fp.write(line)
 
 
 if __name__ == '__main__':
